@@ -576,7 +576,8 @@ class SelectHeadingButton extends StatefulWidget {
   State<SelectHeadingButton> createState() => _SelectHeadingButtonState();
 }
 
-Map<ParchmentAttribute<int>, String> _headingToText(BuildContext context) {
+Map<ParchmentAttribute<int>, String> _headingToText(
+    BuildContext context, List<ParchmentAttribute<int>>? attributes) {
   final localizations = context.l;
 
   final allHeadings = {
@@ -655,7 +656,7 @@ class _SelectHeadingButtonState extends State<SelectHeadingButton> {
             toolbar.requestKeyboard();
           }
         },
-        child: Text(_headingToText(context)[current] ?? ''),
+        child: Text(_headingToText(context, widget.attributes)[current] ?? ''),
       ),
     );
   }
@@ -670,7 +671,10 @@ class _SelectHeadingButtonState extends State<SelectHeadingButton> {
       elevation: 4.0,
       borderRadius: BorderRadius.circular(2),
       color: Theme.of(context).canvasColor,
-      child: _HeadingList(theme: themeData, onSelected: completer.complete),
+      child: _HeadingList(
+          theme: themeData,
+          onSelected: completer.complete,
+          attributes: widget.attributes),
     );
 
     return SelectorScope.showSelector(context, selector, completer);
@@ -678,10 +682,12 @@ class _SelectHeadingButtonState extends State<SelectHeadingButton> {
 }
 
 class _HeadingList extends StatelessWidget {
-  const _HeadingList({required this.theme, required this.onSelected});
+  const _HeadingList(
+      {required this.theme, required this.onSelected, this.attributes});
 
   final FleatherThemeData theme;
   final void Function(ParchmentAttribute<int>) onSelected;
+  final List<ParchmentAttribute<int>>? attributes;
 
   @override
   Widget build(BuildContext context) {
@@ -691,7 +697,7 @@ class _HeadingList extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: _headingToText(context)
+          children: _headingToText(context, attributes)
               .entries
               .map((entry) => _listItem(theme, entry.key, entry.value))
               .toList(),
@@ -1207,7 +1213,8 @@ class _FleatherToolbarState extends State<FleatherToolbar> {
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              crossAxisAlignment: widget.crossAxisAlignment,
+              crossAxisAlignment:
+                  widget.crossAxisAlignment ?? CrossAxisAlignment.center,
               children: widget.children,
             ),
           ),
