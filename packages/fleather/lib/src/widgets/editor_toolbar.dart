@@ -835,11 +835,14 @@ class FleatherToolbar extends StatefulWidget implements PreferredSizeWidget {
   /// If provided, toolbar requests focus and keyboard on toolbar buttons press.
   final GlobalKey<EditorState>? editorKey;
 
+  final CrossAxisAlignment? crossAxisAlignment;
+
   const FleatherToolbar({
     super.key,
     this.editorKey,
     this.padding,
     required this.children,
+    this.crossAxisAlignment,
   });
 
   factory FleatherToolbar.basic({
@@ -1204,6 +1207,7 @@ class _FleatherToolbarState extends State<FleatherToolbar> {
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
+              crossAxisAlignment: widget.crossAxisAlignment,
               children: widget.children,
             ),
           ),
