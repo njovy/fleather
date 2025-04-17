@@ -563,9 +563,14 @@ class _ColorPaletteElement extends StatelessWidget {
 /// Works as a dropdown menu button.
 // TODO: Add "dense" parameter which if set to true changes the button to use an icon instead of text (useful for mobile layouts)
 class SelectHeadingButton extends StatefulWidget {
-  const SelectHeadingButton({super.key, required this.controller});
+  const SelectHeadingButton({
+    super.key,
+    required this.controller,
+    this.attributes,
+  });
 
   final FleatherController controller;
+  final List<ParchmentAttribute<int>>? attributes;
 
   @override
   State<SelectHeadingButton> createState() => _SelectHeadingButtonState();
@@ -574,7 +579,7 @@ class SelectHeadingButton extends StatefulWidget {
 Map<ParchmentAttribute<int>, String> _headingToText(BuildContext context) {
   final localizations = context.l;
 
-  return {
+  final allHeadings = {
     ParchmentAttribute.heading.unset: localizations.headingNormal,
     ParchmentAttribute.heading.level1: localizations.headingLevel1,
     ParchmentAttribute.heading.level2: localizations.headingLevel2,
@@ -583,6 +588,13 @@ Map<ParchmentAttribute<int>, String> _headingToText(BuildContext context) {
     ParchmentAttribute.heading.level5: localizations.headingLevel5,
     ParchmentAttribute.heading.level6: localizations.headingLevel6,
   };
+
+  if (attributes != null) {
+    return Map.fromEntries(
+        allHeadings.entries.where((entry) => attributes.contains(entry.key)));
+  }
+
+  return allHeadings;
 }
 
 class _SelectHeadingButtonState extends State<SelectHeadingButton> {
