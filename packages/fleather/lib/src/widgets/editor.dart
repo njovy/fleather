@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:math';
 
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/cupertino.dart' hide SystemContextMenu;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide SystemContextMenu;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -25,6 +25,7 @@ import 'history.dart';
 import 'keyboard_listener.dart';
 import 'link.dart';
 import 'shortcuts.dart';
+import 'system_context_menu.dart';
 import 'text_line.dart';
 import 'text_selection.dart';
 import 'theme.dart';
@@ -40,16 +41,22 @@ class _WebClipboardStatusNotifier extends ClipboardStatusNotifier {
 /// Widget builder function for context menu in [FleatherEditor].
 typedef FleatherContextMenuBuilder = Widget Function(
   BuildContext context,
-  EditorState editableTextState,
+  EditorState editorState,
 );
 
 /// Default implementation of a widget builder function for context menu.
 Widget defaultContextMenuBuilder(
-        BuildContext context, EditorState editorState) =>
-    AdaptiveTextSelectionToolbar.buttonItems(
-      buttonItems: editorState.contextMenuButtonItems,
-      anchors: editorState.contextMenuAnchors,
-    );
+    BuildContext context, EditorState editorState) {
+  if (defaultTargetPlatform == TargetPlatform.iOS &&
+      SystemContextMenu.isSupported(context) &&
+      !editorState.widget.readOnly) {
+    return SystemContextMenu.editor(editorState: editorState);
+  }
+  return AdaptiveTextSelectionToolbar.buttonItems(
+    buttonItems: editorState.contextMenuButtonItems,
+    anchors: editorState.contextMenuAnchors,
+  );
+}
 
 Widget defaultSpellCheckMenuBuilder(
     BuildContext context, EditorState editorState) {
@@ -119,7 +126,8 @@ class FleatherEditor extends StatefulWidget {
   ///
   /// When set to `false` the editor always expands to fit the entire content
   /// of the document and should normally be placed as a child of another
-  /// scrollable widget, otherwise the content may be clipped.
+  /// scrollable widget, otherwise the content may be clipped and an
+  /// error will be thrown if [enableInteractiveSelection] is `true`.
   ///
   /// Set to `true` by default.
   final bool scrollable;
@@ -174,6 +182,13 @@ class FleatherEditor extends StatefulWidget {
   /// the user, text cannot be copied, and the user cannot paste into
   /// the text field from the clipboard.
   final bool enableInteractiveSelection;
+
+  /// Defines how to measure the width of the rendered text when [readOnly] is
+  /// `true`. Otherwise the value is ignored and forced to
+  /// [TextWidthBasis.parent]
+  ///
+  /// Defaults to [TextWidthBasis.parent].
+  final TextWidthBasis textWidthBasis;
 
   /// The minimum height to be occupied by this editor.
   ///
@@ -302,6 +317,7 @@ class FleatherEditor extends StatefulWidget {
       this.autocorrect = true,
       this.enableSuggestions = true,
       this.enableInteractiveSelection = true,
+      this.textWidthBasis = TextWidthBasis.parent,
       this.minHeight,
       this.maxHeight,
       this.maxContentWidth,
@@ -388,7 +404,7 @@ class _FleatherEditorState extends State<FleatherEditor>
     }
 
     if (cause == SelectionChangedCause.longPress ||
-        cause == SelectionChangedCause.scribble) {
+        cause == SelectionChangedCause.stylusHandwriting) {
       return true;
     }
 
@@ -479,6 +495,7 @@ class _FleatherEditorState extends State<FleatherEditor>
       readOnly: widget.readOnly,
       enableSuggestions: widget.enableSuggestions,
       enableInteractiveSelection: widget.enableInteractiveSelection,
+      textWidthBasis: widget.textWidthBasis,
       minHeight: widget.minHeight,
       maxHeight: widget.maxHeight,
       maxContentWidth: widget.maxContentWidth,
@@ -582,6 +599,7 @@ class RawEditor extends StatefulWidget {
     this.autocorrect = true,
     this.enableSuggestions = true,
     this.enableInteractiveSelection = true,
+    this.textWidthBasis = TextWidthBasis.parent,
     this.minHeight,
     this.maxHeight,
     this.maxContentWidth,
@@ -708,6 +726,9 @@ class RawEditor extends StatefulWidget {
   ///
   ///  * [TextCapitalization], for a description of each capitalization behavior.
   final TextCapitalization textCapitalization;
+
+  /// Defines how to measure the width of the rendered text.
+  final TextWidthBasis textWidthBasis;
 
   /// The maximum height this editor can have.
   ///
@@ -838,6 +859,8 @@ abstract class EditorState extends State<RawEditor>
 
   FleatherThemeData get themeData;
 
+  int get viewId;
+
   /// Controls the floating cursor animation when it is released.
   /// The floating cursor is animated to merge with the regular cursor.
   AnimationController get floatingCursorResetController;
@@ -858,7 +881,7 @@ abstract class EditorState extends State<RawEditor>
   ///
   /// if [createIfNull] is `true`, create the [EditorTextSelectionOverlay]
   /// if the latter is null
-  bool showToolbar({createIfNull = false});
+  bool showToolbar({bool createIfNull = false});
 
   /// Shows toolbar with spell check suggestions of misspelled words that are
   /// available for click-and-replace.
@@ -934,6 +957,9 @@ class RawEditorState extends EditorState
   @override
   ClipboardStatusNotifier get clipboardStatus => widget.clipboardStatus;
 
+  @override
+  int get viewId => View.of(context).viewId;
+
   final LayerLink _toolbarLayerLink = LayerLink();
   final LayerLink _startHandleLayerLink = LayerLink();
   final LayerLink _endHandleLayerLink = LayerLink();
@@ -957,6 +983,9 @@ class RawEditorState extends EditorState
         '$runtimeType created without a textDirection and with no ambient Directionality.');
     return result!;
   }
+
+  TextWidthBasis get _textWidthBasis =>
+      widget.readOnly ? widget.textWidthBasis : TextWidthBasis.parent;
 
   /// The renderer for this widget's editor descendant.
   ///
@@ -1395,6 +1424,7 @@ class RawEditorState extends EditorState
       _didAutoFocus = true;
     }
     performSpellCheck(widget.controller.plainTextEditingValue.text);
+    updateConnectionConfig();
   }
 
   @override
@@ -1597,7 +1627,10 @@ class RawEditorState extends EditorState
   bool _showCaretOnScreenScheduled = false;
 
   void _showCaretOnScreen([bool withAnimation = true]) {
-    if (!widget.showCursor || _showCaretOnScreenScheduled) {
+    if (!_hasFocus ||
+        !widget.showCursor ||
+        !widget.enableInteractiveSelection ||
+        _showCaretOnScreenScheduled) {
       return;
     }
 
@@ -1609,20 +1642,36 @@ class RawEditorState extends EditorState
         return;
       }
 
-      final offset = renderEditor.getOffsetToRevealCursor(
-          _scrollController.position.viewportDimension,
-          _scrollController.offset);
+      final localRect =
+          renderEditor.getLocalRectForCaret(textEditingValue.selection.extent);
+      final editorRect = Rect.fromLTWH(
+          0, 0, renderEditor.size.width, renderEditor.size.height);
+      if (editorRect.overlaps(localRect)) {
+        renderEditor.showOnScreen(
+            rect: editorRect.intersect(localRect),
+            duration: withAnimation ? _caretAnimationDuration : Duration.zero);
+      } else {
+        renderEditor.showOnScreen(
+            rect: editorRect,
+            duration: withAnimation ? _caretAnimationDuration : Duration.zero);
+      }
 
-      if (offset != null) {
-        if (withAnimation) {
-          _scrollController.animateTo(
-            math.min(offset, _scrollController.position.maxScrollExtent),
-            duration: _caretAnimationDuration,
-            curve: _caretAnimationCurve,
-          );
-        } else {
-          _scrollController.jumpTo(
-              math.min(offset, _scrollController.position.maxScrollExtent));
+      if (widget.scrollable) {
+        final offset = renderEditor.getOffsetToRevealCursor(
+            _scrollController.position.viewportDimension,
+            _scrollController.offset);
+
+        if (offset != null) {
+          if (withAnimation) {
+            _scrollController.animateTo(
+              math.min(offset, _scrollController.position.maxScrollExtent),
+              duration: _caretAnimationDuration,
+              curve: _caretAnimationCurve,
+            );
+          } else {
+            _scrollController.jumpTo(
+                math.min(offset, _scrollController.position.maxScrollExtent));
+          }
         }
       }
     });
@@ -1719,6 +1768,7 @@ class RawEditorState extends EditorState
             padding: widget.padding,
             maxContentWidth: widget.maxContentWidth,
             cursorController: _cursorController,
+            textWidthBasis: _textWidthBasis,
             children: _buildChildren(context),
           ),
         ),
@@ -1740,6 +1790,7 @@ class RawEditorState extends EditorState
             onSelectionChanged: _handleSelectionChanged,
             padding: widget.padding,
             maxContentWidth: widget.maxContentWidth,
+            textWidthBasis: _textWidthBasis,
             children: _buildChildren(context),
           ),
         ),
@@ -1795,6 +1846,7 @@ class RawEditorState extends EditorState
               embedBuilder: widget.embedBuilder,
               linkActionPicker: _linkActionPicker,
               onLaunchUrl: widget.onLaunchUrl,
+              textWidthBasis: widget.textWidthBasis,
             ),
             hasFocus: _hasFocus,
             devicePixelRatio: MediaQuery.of(context).devicePixelRatio,
@@ -1812,6 +1864,7 @@ class RawEditorState extends EditorState
             cursorController: _cursorController,
             selection: widget.controller.selection,
             selectionColor: widget.selectionColor,
+            textWidthBasis: _textWidthBasis,
             enableInteractiveSelection: widget.enableInteractiveSelection,
             hasFocus: _hasFocus,
             contentPadding: (block == ParchmentAttribute.block.code)
@@ -2169,6 +2222,7 @@ class _Editor extends MultiChildRenderObjectWidget {
     required this.endHandleLayerLink,
     required this.onSelectionChanged,
     required this.cursorController,
+    required this.textWidthBasis,
     this.padding = EdgeInsets.zero,
     this.maxContentWidth,
   });
@@ -2183,6 +2237,7 @@ class _Editor extends MultiChildRenderObjectWidget {
   final TextSelectionChangedHandler onSelectionChanged;
   final EdgeInsetsGeometry padding;
   final double? maxContentWidth;
+  final TextWidthBasis textWidthBasis;
   final CursorController cursorController;
 
   @override
@@ -2199,6 +2254,7 @@ class _Editor extends MultiChildRenderObjectWidget {
       cursorController: cursorController,
       padding: padding,
       maxContentWidth: maxContentWidth,
+      textWidthBasis: textWidthBasis,
     );
   }
 
@@ -2216,6 +2272,7 @@ class _Editor extends MultiChildRenderObjectWidget {
     renderObject.onSelectionChanged = onSelectionChanged;
     renderObject.padding = padding;
     renderObject.maxContentWidth = maxContentWidth;
+    renderObject.textWidthBasis = textWidthBasis;
   }
 }
 

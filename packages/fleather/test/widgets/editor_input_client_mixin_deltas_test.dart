@@ -27,6 +27,7 @@ class MockEditorState extends Mock implements EditorState {
       startHandleLayerLink: LayerLink(),
       endHandleLayerLink: LayerLink(),
       padding: EdgeInsets.zero,
+      textWidthBasis: TextWidthBasis.parent,
       cursorController: CursorController(
           showCursor: ValueNotifier(true),
           style: const CursorStyle(
@@ -98,6 +99,7 @@ void main() {
       rawEditor = MockRawEditor();
       controller = MockFleatherController();
       when(() => editorState.widget).thenReturn(rawEditor);
+      when(() => editorState.viewId).thenReturn(0);
       when(() => editorState.textEditingValue)
           .thenReturn(initialTextEditingValue);
       when(() => editorState.themeData).thenReturn(FleatherThemeData(

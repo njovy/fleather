@@ -86,6 +86,8 @@ class _EncoderState {
   bool isSingleLine = true;
 }
 
+const _defaultImageStyle = 'max-width: 100%; object-fit: contain;';
+
 // Inline tags relate directly to ParchmentAttributeScope.inline.
 // While iterating through operations, when within a line, one can only know if
 // the corresponding HTML tag is open. Only when the operation doesn't have the
@@ -176,6 +178,36 @@ class _ParchmentHtmlEncoder extends Converter<ParchmentDocument, String> {
     return currentLevel < candidateLevel;
   }
 
+  // Check if both attributes are lists of different type with same indentation
+  bool isDifferentListTypeWithSameIndentationLevel(
+      ParchmentStyle parent, ParchmentStyle child) {
+    final currentListAttribute = parent.values.firstWhereOrNull(
+        (e) => e == ParchmentAttribute.ol || e == ParchmentAttribute.ul);
+    final candidateListAttribute = child.values.firstWhereOrNull(
+        (e) => e == ParchmentAttribute.ol || e == ParchmentAttribute.ul);
+
+    if (currentListAttribute == null || candidateListAttribute == null) {
+      return false;
+    }
+
+    if (currentListAttribute == candidateListAttribute) {
+      return false;
+    }
+
+    int currentLevel = parent.values
+            .firstWhere((e) => e.key == ParchmentAttribute.indent.key,
+                orElse: () => ParchmentAttribute.indent.withLevel(0))
+            .value ??
+        0;
+    int candidateLevel = child.values
+            .firstWhere((e) => e.key == ParchmentAttribute.indent.key,
+                orElse: () => ParchmentAttribute.indent.withLevel(0))
+            .value ??
+        0;
+
+    return currentLevel == candidateLevel;
+  }
+
   @override
   String convert(ParchmentDocument input) {
     final state = _EncoderState();
@@ -183,7 +215,7 @@ class _ParchmentHtmlEncoder extends Converter<ParchmentDocument, String> {
       final buffer = state.buffer;
       final openInlineTags = state.openInlineTags;
 
-      if (_hasPlainParagraph(op)) {
+      if (_isPlainParagraph(op)) {
         _processInlineTags(op, buffer, openInlineTags);
         _handlePlainBlock(op, state);
         continue;
@@ -254,7 +286,14 @@ class _ParchmentHtmlEncoder extends Converter<ParchmentDocument, String> {
       if (!isPlain(blockTag.style)) {
         position += blockTag.inducedPadding;
       }
-      if (i == numToClose - 1 && !beforePlainParagraphHandling) {
+
+      // Handles the case where a nested list is followed by a plain paragraph
+      bool isBlockTagNested = openBlockTags.length >= 2 &&
+          openBlockTags[0].style.lineAttributes.firstWhereOrNull(
+                  (e) => e.key == ParchmentAttribute.indent.key) !=
+              null;
+      if (i == numToClose - 1 &&
+          (!beforePlainParagraphHandling || isBlockTagNested)) {
         blockTag.closingPosition = buffer.length;
       }
       _writeBlockTag(buffer, blockTag);
@@ -264,7 +303,7 @@ class _ParchmentHtmlEncoder extends Converter<ParchmentDocument, String> {
     return numToClose == 1 ? position : buffer.length;
   }
 
-  bool _hasPlainParagraph(Operation op) {
+  bool _isPlainParagraph(Operation op) {
     return op.isPlain &&
         op.data is String &&
         (op.data as String).contains('\n');
@@ -324,7 +363,7 @@ class _ParchmentHtmlEncoder extends Converter<ParchmentDocument, String> {
   // Plain block deserve a special treatment as they are the only operations in
   // which the data string will contain several paragraph.
   void _handlePlainBlock(Operation op, _EncoderState state) {
-    assert(_hasPlainParagraph(op));
+    assert(_isPlainParagraph(op));
     var position = 0;
     var initialPosition = position;
     final openBlockTags = state.openBlockTags;
@@ -415,6 +454,29 @@ class _ParchmentHtmlEncoder extends Converter<ParchmentDocument, String> {
       _writeBlockTag(
           buffer, currentBlockTag..closingPosition = currentLineStart);
       openBlockTags.removeAt(0);
+      // This handle the case where a new list (different list style) is directly
+      // succeeding another list that ends with a nest list item
+      if (isDifferentListTypeWithSameIndentationLevel(
+          opStyle, openBlockTags[0].style)) {
+        final nextBlockTag = openBlockTags[0];
+        _writeBlockTag(
+            buffer,
+            nextBlockTag
+              ..closingPosition =
+                  currentLineStart + currentBlockTag.inducedPadding);
+        openBlockTags.removeAt(0);
+        // If no previous style, let caller write surrounding tags
+        if (openBlockTags.isEmpty) {
+          var newBlockTag = _HtmlBlockTag(
+              opStyle,
+              currentLineStart +
+                  nextBlockTag.inducedPadding +
+                  currentBlockTag.inducedPadding);
+          // If no previous style, let caller write surrounding tags
+          openBlockTags.insert(0, newBlockTag..closingPosition = buffer.length);
+        }
+        return currentBlockTag.inducedPadding + nextBlockTag.inducedPadding;
+      }
       return currentBlockTag.inducedPadding;
     }
 
@@ -491,10 +553,19 @@ class _ParchmentHtmlEncoder extends Converter<ParchmentDocument, String> {
           return;
         }
         if (embeddable.type == 'image') {
-          // Force the image to fit within any max. width that might be set. If
-          // no width or max-width is set on an outer block, then this does nothing.
-          buffer.write(
-              '<img src="${embeddable.data['source']}" style="max-width: 100%; object-fit: contain;">');
+          final attributes = StringBuffer();
+          if (embeddable.data['width'] != null) {
+            attributes.write(' width="${embeddable.data['width']}"');
+          }
+          if (embeddable.data['height'] != null) {
+            attributes.write(' height="${embeddable.data['height']}"');
+          }
+          if (embeddable.data['style'] != null) {
+            attributes.write(' style="${embeddable.data['style']}"');
+          } else {
+            attributes.write(' style="$_defaultImageStyle"');
+          }
+          buffer.write('<img src="${embeddable.data['source']}"$attributes>');
           return;
         }
       }
@@ -898,8 +969,17 @@ class _ParchmentHtmlDecoder extends Converter<String, ParchmentDocument> {
         return delta;
       }
       if (node.localName == 'img') {
-        final src = node.attributes['src'] ?? '';
-        delta.insert(BlockEmbed.image(src).toJson());
+        final String source = node.attributes['src'] ?? '';
+        final int? width = int.tryParse(node.attributes['width'] ?? '');
+        final int? height = int.tryParse(node.attributes['height'] ?? '');
+        final String? style = node.attributes['style'];
+
+        final Map<String, dynamic> data = {'source': source};
+        if (width != null) data['width'] = width;
+        if (height != null) data['height'] = height;
+        if (style != null) data['style'] = style;
+
+        delta.insert(BlockEmbed.image(source, data: data).toJson());
         // <img> can be enclosed in a <p> element, but
         // we only want to support <p> with only one node (<img>)
         if (node.parent is html.Element &&

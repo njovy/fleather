@@ -9,6 +9,7 @@ import 'fleather_localizations_de.g.dart';
 import 'fleather_localizations_en.g.dart';
 import 'fleather_localizations_fa.g.dart';
 import 'fleather_localizations_fr.g.dart';
+import 'fleather_localizations_hu.g.dart';
 import 'fleather_localizations_ko.g.dart';
 import 'fleather_localizations_nl.g.dart';
 import 'fleather_localizations_pt.g.dart';
@@ -100,13 +101,14 @@ abstract class FleatherLocalizations {
 
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
-    Locale('pt', 'BR'),
     Locale('de'),
     Locale('en'),
     Locale('fa'),
     Locale('fr'),
+    Locale('hu'),
     Locale('ko'),
     Locale('nl'),
+    Locale('pt', 'BR'),
     Locale('pt')
   ];
 
@@ -207,13 +209,14 @@ class _FleatherLocalizationsDelegate
 
   @override
   bool isSupported(Locale locale) => <String>[
-        'pt',
         'de',
         'en',
         'fa',
         'fr',
+        'hu',
         'ko',
-        'nl'
+        'nl',
+        'pt'
       ].contains(locale.languageCode);
 
   @override
@@ -235,8 +238,6 @@ FleatherLocalizations lookupFleatherLocalizations(Locale locale) {
 
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
-    case 'pt':
-      return FleatherLocalizationsPt();
     case 'de':
       return FleatherLocalizationsDe();
     case 'en':
@@ -245,10 +246,14 @@ FleatherLocalizations lookupFleatherLocalizations(Locale locale) {
       return FleatherLocalizationsFa();
     case 'fr':
       return FleatherLocalizationsFr();
+    case 'hu':
+      return FleatherLocalizationsHu();
     case 'ko':
       return FleatherLocalizationsKo();
     case 'nl':
       return FleatherLocalizationsNl();
+    case 'pt':
+      return FleatherLocalizationsPt();
   }
 
   throw FlutterError(
